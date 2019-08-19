@@ -99,7 +99,6 @@ void spoofing(pcap_t *handle, MAC *sender_mac, uint32_t *sender_ip, MAC *target_
 	}
 
 	// spoofing
-	MAC broadcast = MAC(1);
 	while (true) {
 		struct pcap_pkthdr *header;
 		const u_char* packet;
